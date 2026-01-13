@@ -180,7 +180,7 @@ Object.keys(manifest).forEach((id) => {
 
     const functionName = item.fileName.replace(/\s/g, '_');
     if (item.type === 'typescript' && item.isFun && code != null) {
-        const msgType = extractMsgTypeFromComment(code) || 'any';
+        const msgType = extractMsgTypeFromComment(code) || 'msg: any';
 
         const localDefs = extractSection(code, LOCAL_START, LOCAL_END);
 

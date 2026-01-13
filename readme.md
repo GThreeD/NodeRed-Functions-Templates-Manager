@@ -197,3 +197,8 @@ Minor bugfixes to On Start extraction
 Small update to allow extraction of On Start / On Stop with an empty On Message function
 
 
+### version 1.0.10
+
+Adding Typescript feature for reading Nodes of "node-red-contrib-ts" plugin
+
+[Read more about TypeScript support](docs/typescript.md)
