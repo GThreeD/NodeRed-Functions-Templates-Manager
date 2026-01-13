@@ -30,10 +30,26 @@ const manfestFile = path.join(sourcePath, 'manifest.json');
 
 // Collect all .vue and .js files from all subdirectories
 
+const GLOBAL_START = '// Global Definition';
+const GLOBAL_END   = '// Global Definition End';
+
+const LOCAL_START  = '// Local Definition';
+const LOCAL_END    = '// Local Definition End';
+
+const GLOBAL_TYPES_FILE = path.join(sourcePath, '__global__', 'types.ts');
+
+let GLOBAL_TYPES = '';
+
+if (fs.existsSync(GLOBAL_TYPES_FILE)) {
+    GLOBAL_TYPES = fs.readFileSync(GLOBAL_TYPES_FILE, 'utf8')
+}
+
+
+
 let sourceFiles = [];
 
 try {
-    sourceFiles = getAllFiles(sourcePath, ['.vue', '.js', '.md']);
+    sourceFiles = getAllFiles(sourcePath, ['.vue', '.js', '.md', '.ts']);
 } catch (error) {
     console.error(`ERROR-C01: Could not find any files ro read in ${sourcePath}`);
     process.exit(1);
@@ -75,7 +91,15 @@ sourceFiles.forEach(file => {
   
     const isCode = isFinalize === false && isInitialize === false;
 
-    const baseName = file.replace(/\.initialize\./, '.').replace(/\.finalize\./, '.').replace(/\.info\./, '.').replace(/\.vue$/, '').replace(/\.js$/, '').replace(/\.md$/, '')
+    const baseName = file
+        .replace(/\.initialize\./, '.')
+        .replace(/\.finalize\./, '.')
+        .replace(/\.info\./, '.')
+        .replace(/\.vue$/, '')
+        .replace(/\.js$/, '')
+        .replace(/\.ts$/, '')
+        .replace(/\.md$/, '');
+
 
     const fileName = baseName.split('/').pop().trim();
 
@@ -91,6 +115,7 @@ sourceFiles.forEach(file => {
     const isVue = file.endsWith('.vue');
     const isJs = file.endsWith('.js');
     const isInfo = file.endsWith('.md');
+    const isTs = file.endsWith('.ts');
 
     let flow;
 
@@ -122,8 +147,12 @@ sourceFiles.forEach(file => {
             // updatedCount++;
             // console.info(`INFO: updated flow id ${flowId} with ${file}`);
         }
-    } else if (isJs) {
+    } else if (isJs || isTs) {
         flow = flows.find(f => f.id === flowId && typeof f.func === 'string');
+
+        if (isTs && flow.type !== 'typescript') {
+            console.warn(`WARN: ${file} is .ts but flow ${flowId} is type ${flow.type}`);
+        }
 
         if (flow) {
 
@@ -135,7 +164,28 @@ sourceFiles.forEach(file => {
                     return;
                 }
 
-                flow.func = functionTemplate.trim();
+                if (isTs && flow.type === 'typescript') {
+                    const { local, body } = splitTypescriptFunction(templateContent);
+
+
+                    const cleanLocal = local.trim();
+                    const cleanBody  = unindent(body || '', 4).trim();
+
+                    flow.func = [
+                        GLOBAL_TYPES
+                            ? `${GLOBAL_START}\n${GLOBAL_TYPES}\n${GLOBAL_END}`
+                            : '',
+                        local
+                            ? `${LOCAL_START}\n${cleanLocal}\n${LOCAL_END}`
+                            : '',
+                        cleanBody
+                    ].filter(Boolean).join('\n\n');
+
+
+                } else {
+                    flow.func = functionTemplate.trim();
+                }
+
 
                 updatedCount++;
 
@@ -198,21 +248,20 @@ if (updatedCount > 0) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 function removeFunctionWrapper(code) {
-    const match = code.match(/\s*export\s*default\s*function\s*.*\(msg\)\s*{/);
+    const match = code.match(
+        /export\s+default\s+(async\s+)?function\s+[^(]*\([^)]*\)\s*\{/
+    );
 
-    if (match) {
-        const result = code.slice(match[0].length).trim();
+    if (!match) return code;
 
-        const lastIndex = result.lastIndexOf('}');
+    let inner = code.slice(match.index + match[0].length);
 
-        if (lastIndex !== -1) {
-            return result.slice(0, lastIndex) + result.slice(lastIndex + 1);
-        }
-
-        return result
+    const last = inner.lastIndexOf('}');
+    if (last !== -1) {
+        inner = inner.slice(0, last);
     }
 
-    return code
+    return unindent(inner.trim(), 4);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -255,6 +304,7 @@ async function reloadFlows(nodeRedUrl) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 function getAllFiles(dir, exts, fileList = [], relDir = '') {
+    if (dir.includes('__global__')) return fileList;
     const files = fs.readdirSync(dir);
 
     files.forEach(file => {
@@ -276,13 +326,73 @@ function getAllFiles(dir, exts, fileList = [], relDir = '') {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+function unindent(code, spaces = 4) {
+    const re = new RegExp(`^ {${spaces}}`);
+    return code
+        .split('\n')
+        .map(l => l.replace(re, ''))
+        .join('\n');
+}
 
 
+function extractSection(code, start, end) {
+    if (!code) return '';
+    const s = code.indexOf(start);
+    const e = code.indexOf(end);
+    if (s === -1 || e === -1 || e < s) return '';
+    return code.slice(s + start.length, e).trim();
+}
 
+function removeSections(code, sections) {
+    let out = code;
+    for (const [start, end] of sections) {
+        const re = new RegExp(
+            `${start}[\\s\\S]*?${end}`,
+            'g'
+        );
+        out = out.replace(re, '');
+    }
+    return out.trim();
+}
 
+function splitTypescriptFunction(code) {
+    if (!code) {
+        return { local: '', body: '', after: '' };
+    }
 
+    const exportMatch = code.match(
+        /export\s+default\s+(async\s+)?function\s+[^(]*\([^)]*\)\s*\{/m
+    );
 
+    if (!exportMatch) {
+        return {
+            local: '',
+            body: code.trim(),
+            after: ''
+        };
+    }
 
+    const exportIndex = exportMatch.index;
+    const bodyStart = exportIndex + exportMatch[0].length;
 
+    const local = code.slice(0, exportIndex).trim();
 
+    let depth = 1;
+    let i = bodyStart;
+
+    while (i < code.length && depth > 0) {
+        if (code[i] === '{') depth++;
+        else if (code[i] === '}') depth--;
+        i++;
+    }
+
+    const body = code.slice(bodyStart, i - 1).trim();
+    const after = code.slice(i).trim();
+
+    return {
+        local,
+        body,
+        after
+    };
+}
 

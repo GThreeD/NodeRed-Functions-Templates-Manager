@@ -125,8 +125,12 @@ watcherForCollect.on('all', (event, filePath) => {
     if (runningExtract) {
         return;
     }
-
-    if (filePath.endsWith('.js') || filePath.endsWith('.vue') || filePath.endsWith('.md')) {
+    if (
+        filePath.endsWith('.js') ||
+        filePath.endsWith('.ts') ||
+        filePath.endsWith('.vue') ||
+        filePath.endsWith('.md')
+    ) {
         runCollectChanges();
     }
 });
