@@ -30,6 +30,12 @@ const manfestFile = path.join(sourcePath, 'manifest.json');
 
 // Setup the vars needed for the extraction
 
+const GLOBAL_START = '// Global Definition';
+const GLOBAL_END   = '// Global Definition End';
+
+const LOCAL_START  = '// Local Definition';
+const LOCAL_END    = '// Local Definition End';
+
 const flows = JSON.parse(fs.readFileSync(flowsFile, 'utf8'));
 
 let count = 0;
@@ -59,9 +65,7 @@ flows.forEach((item) => {
 
     let name
 
-    if (type === 'function') {
-        name = item.name;
-    } else if (type === 'ui-template') {
+    if (type === 'function' || type === 'typescript' || type === 'ui-template') {
         name = item.name;
     } else {
         return
@@ -96,6 +100,22 @@ flows.forEach((item) => {
 
     let code = isVue ? item.format : item.func;
 
+    const globals = extractSection(code, GLOBAL_START, GLOBAL_END);
+    if (globals){
+        const globalDir = path.join(sourcePath, '__global__');
+        const globalFile = path.join(globalDir, 'types.ts');
+        
+        if (!fs.existsSync(globalDir)) {
+            fs.mkdirSync(globalDir, { recursive: true });
+        }
+        
+        fs.writeFileSync(
+            globalFile,
+            `${globals}`,
+            'utf8'
+        );
+    }
+
     let initialize = isFun ? item.initialize : undefined;
     let finalize = isFun ? item.finalize : undefined;
 
@@ -118,7 +138,7 @@ flows.forEach((item) => {
     }
 
     if (isVue || isFun) {
-        manifest[id] = { folderName, name, sanitizedName, fileName, isVue, isFun, code, initialize, finalize, info };
+        manifest[id] = { type, folderName, name, sanitizedName, fileName, isVue, isFun, code, initialize, finalize, info };
     }
 })
 
@@ -139,7 +159,9 @@ Object.keys(manifest).forEach((id) => {
 
     const baseName = item.fileName;
 
-    const codeName = `${baseName}.${item.isVue ? 'vue' : 'js'}`
+    const isTs = item.type === 'typescript';
+    const codeName = `${baseName}.${item.isVue ? 'vue' : isTs ? 'ts' : 'js'}`
+
 
     const initializeName = `${baseName}.initialize.js`
     const finalizeName = `${baseName}.finalize.js`
@@ -156,8 +178,32 @@ Object.keys(manifest).forEach((id) => {
     let finalize = item.finalize;
     let info = item.info;
 
+    const functionName = item.fileName.replace(/\s/g, '_');
+    if (item.type === 'typescript' && item.isFun && code != null) {
+        const msgType = extractMsgTypeFromComment(code) || 'any';
+
+        const localDefs = extractSection(code, LOCAL_START, LOCAL_END);
+
+        const cleanBody = removeSections(code, [
+            [GLOBAL_START, GLOBAL_END],
+            [LOCAL_START, LOCAL_END]
+        ]);
+
+        const body = indent(cleanBody, 4);
+
+        code = [
+            localDefs || null,
+            `export default function ${functionName}(${msgType}) {`,
+            body,
+            `}`
+        ].filter(Boolean).join('\n');
+
+
+    }
+
+
+
     if (startupProperties.wrap) {
-        const functionName = item.fileName.replace(/\s/g, '_');
 
         if (item.isFun && code != null) {
             code = `export default function ${functionName}(msg){\n${code}\n\n}`;
@@ -202,7 +248,7 @@ fs.writeFileSync(manfestFile, JSON.stringify(manifest, null, 2), 'utf8');
 let sourceFiles = [];
 
 try {
-    sourceFiles = getAllFiles(sourcePath, ['.vue', '.js', '.md']);
+    sourceFiles = getAllFiles(sourcePath, ['.vue', '.js', '.md', ".ts"]);
 } catch (error) {
     console.error(`ERROR-E01: could not find any files ro read in ${sourcePath}`);
     process.exit(1);
@@ -240,6 +286,8 @@ if (count === 0) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 function getAllFiles(dir, exts, fileList = [], relDir = '') {
+    if (dir.includes('__global__')) return fileList;
+
     const files = fs.readdirSync(dir);
 
     files.forEach(file => {
@@ -258,4 +306,44 @@ function getAllFiles(dir, exts, fileList = [], relDir = '') {
     return fileList;
 }
 
+function extractMsgTypeFromComment(code) {
+    if (!code) return null;
+
+    // Match: // @param name: Type
+    const match = code.match(/@param\s+([a-zA-Z0-9_]+\s*:\s*[^\n\r]+)/ );
+
+    if (!match) return null;
+
+    return match[1].trim();
+}
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function indent(code, spaces = 4) {
+    const pad = ' '.repeat(spaces);
+    return code
+        .split('\n')
+        .map(l => l.trim() ? pad + l : '')
+        .join('\n');
+}
+
+function extractSection(code, start, end) {
+    if (!code) return '';
+    const s = code.indexOf(start);
+    const e = code.indexOf(end);
+    if (s === -1 || e === -1 || e < s) return '';
+    return code.slice(s + start.length, e).trim();
+}
+
+function removeSections(code, sections) {
+    let out = code;
+    for (const [start, end] of sections) {
+        const re = new RegExp(
+            `${start}[\\s\\S]*?${end}`,
+            'g'
+        );
+        out = out.replace(re, '');
+    }
+    return out.trim();
+}
