@@ -37,4 +37,4 @@ kubectl -n "${NAMESPACE}" create configmap "${CONFIGMAP_NAME}" \
 
 export IMAGE NAMESPACE PVC_NAME DATA_PATH CONFIGMAP_NAME DEPLOYMENT_NAME
 
-envsubst < k8s/deployment.yaml.template | kubectl apply -f -
+envsubst < k8s/base/deployment.yaml.template | kubectl apply -f -
