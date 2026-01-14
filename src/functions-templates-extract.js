@@ -20,8 +20,15 @@ const currentDirectory = dirname(currentPathAndFile);
 const defaultFile = './flows.json';
 const defaultUrl = 'http://127.0.0.1:1880'
 
-const flowsFile = startupProperties.flowsFile ?? defaultFile;
-const serverAt = startupProperties.serverAt ?? defaultUrl;
+const flowsFile =
+  startupProperties.flowsFile ||
+  process.env.FLOWS_FILE ||
+  defaultFile;
+  
+const serverAt =
+  startupProperties.serverAt ||
+  process.env.SERVER_AT ||
+  defaultUrl;
 
 const flowsPath = dirname(flowsFile);
 
