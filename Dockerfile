@@ -2,11 +2,11 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY src/package.json src/package-lock.json ./
 
 RUN npm ci --only=production
 
-COPY . .
+COPY src/ .
 
 RUN npm link
 
