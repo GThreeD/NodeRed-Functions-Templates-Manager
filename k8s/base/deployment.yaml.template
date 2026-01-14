@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${DEPLOYMENT_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${DEPLOYMENT_NAME}
+  template:
+    metadata:
+      labels:
+        app: ${DEPLOYMENT_NAME}
+    spec:
+      containers:
+      - name: manager
+        image: ${IMAGE}
+        imagePullPolicy: IfNotPresent
+        envFrom:
+          - configMapRef:
+              name: ${CONFIGMAP_NAME}
+        volumeMounts:
+          - name: nodered-data
+            mountPath: ${DATA_PATH}
+      volumes:
+        - name: nodered-data
+          persistentVolumeClaim:
+            claimName: ${PVC_NAME}

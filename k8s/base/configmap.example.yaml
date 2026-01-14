@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nodered-functions-manager-config
+  namespace: automation
+data:
+  FLOWS_FILE: /data/flows.json
+  SERVER_AT: http://node-red:1880
